@@ -1,158 +1,158 @@
 # Task Tracker API
 
-ASP.NET Core Web API + Entity Framework Core (Code-First) + SQL Server + JWT Authentication kullanılarak geliştirilmiş bir görev/proje yönetim sistemi. Junior .NET Backend Developer pozisyonlarına başvururken portföyde gösterilmek amacıyla, gerçekçi bir katmanlı mimari (Controller → Service → Repository), DTO kullanımı, JWT tabanlı authentication/authorization ve merkezi hata yönetimi prensipleriyle inşa edilmiştir.
+A task/project management system built with ASP.NET Core Web API, Entity Framework Core (Code-First), SQL Server, and JWT authentication. Built as a portfolio project for junior .NET Backend Developer job applications, following a realistic layered architecture (Controller → Service → Repository), DTO usage, JWT-based authentication/authorization, and centralized error handling.
 
-Gereksinimlerin orijinal hali için bkz. [task-tracker-gereksinimler.md](task-tracker-gereksinimler.md).
+The original requirements document (Turkish) is available at [task-tracker-gereksinimler.md](task-tracker-gereksinimler.md).
 
-## Teknoloji Yığını
+## Tech Stack
 
 - **.NET 9** (ASP.NET Core Web API)
 - **Entity Framework Core 9** (Code-First, SQL Server provider)
 - **SQL Server** (local)
 - **JWT Bearer Authentication** (`Microsoft.AspNetCore.Authentication.JwtBearer`)
-- **BCrypt.Net-Next** — şifre hashleme
+- **BCrypt.Net-Next** — password hashing
 - **Swashbuckle.AspNetCore** (Swagger / OpenAPI)
 
-## Mimari
+## Architecture
 
 ```
 Controller  →  Service  →  Repository  →  ApplicationDbContext (EF Core)  →  SQL Server
 ```
 
-- **Controller**: sadece HTTP ile ilgilenir (route, model binding, response). İş kuralı içermez.
-- **Service**: iş mantığı ve yetkilendirme kontrolleri burada (örn. "proje üyesi değilsen 403").
-- **Repository**: veritabanı erişimini soyutlar, Service katmanı EF Core'a doğrudan bağımlı değildir.
-- **DTO'lar**: Entity'ler API'den doğrudan dönmez (örn. `User.PasswordHash` asla dışarı sızmaz).
-- **Global Exception Middleware**: Service katmanı `NotFoundException` / `ForbiddenException` / `InvalidOperationException` / `UnauthorizedAccessException` fırlatır, `Middleware/GlobalExceptionHandler.cs` bunları merkezi olarak 404/403/400/401'e çevirir — Controller'larda hiç `try/catch` yoktur.
+- **Controller**: handles HTTP concerns only (routing, model binding, responses). No business logic.
+- **Service**: business logic and authorization checks live here (e.g. "return 403 if you're not a project member").
+- **Repository**: abstracts database access, so the Service layer isn't directly coupled to EF Core.
+- **DTOs**: entities are never returned directly from the API (e.g. `User.PasswordHash` never leaks out).
+- **Global Exception Middleware**: the Service layer throws `NotFoundException` / `ForbiddenException` / `InvalidOperationException` / `UnauthorizedAccessException`, and `Middleware/GlobalExceptionHandler.cs` centrally maps them to 404/403/400/401 — controllers contain no `try/catch` at all.
 
-### Proje yapısı
+### Project structure
 
 ```
 src/TaskTracker.Api/
 ├── Controllers/        AuthController, ProjectsController, TasksController
-├── Services/            iş mantığı (+ Interfaces/)
-├── Repositories/         EF Core erişimi (+ Interfaces/)
+├── Services/            business logic (+ Interfaces/)
+├── Repositories/         EF Core access (+ Interfaces/)
 ├── Models/
 │   ├── Entities/        User, Project, ProjectMember, TaskItem
 │   ├── Enums/            ProjectRole, TaskStatusEnum, TaskPriority
-│   └── Dtos/             Request/response DTO'ları
+│   └── Dtos/             request/response DTOs
 ├── Data/                 ApplicationDbContext
 ├── Exceptions/           NotFoundException, ForbiddenException
 ├── Middleware/           GlobalExceptionHandler (IExceptionHandler)
-└── Migrations/           EF Core migration'ları
+└── Migrations/           EF Core migrations
 ```
 
-## Veri Modeli
+## Data Model
 
-- **User** ⟶ birden çok **Project** sahibi olabilir (1-N, `OwnerId`)
-- **Project** ⟷ **User**: N-N ilişki, ara tablo **ProjectMember** (`Role`: `Owner` / `Member`). Proje oluşturulunca, oluşturan kullanıcı otomatik olarak `Owner` rolüyle bir `ProjectMember` kaydı da alır.
-- **Project** ⟶ birden çok **TaskItem** (1-N)
-- **TaskItem** ⟶ opsiyonel olarak bir **User**'a atanabilir (`AssignedToUserId`, nullable) ve her zaman bir **User** tarafından oluşturulmuştur (`CreatedByUserId`, zorunlu — bu alan orijinal gereksinim dokümanının veri modelinde yoktu, ama endpoint tablosunda "görevi silme yetkisi: oluşturan veya Owner" maddesi olduğu için sonradan eklendi)
+- **User** can own multiple **Project**s (1-N, `OwnerId`)
+- **Project** ⟷ **User**: many-to-many via the **ProjectMember** join table (`Role`: `Owner` / `Member`). When a project is created, its creator automatically also gets a `ProjectMember` row with `Owner` role.
+- **Project** has many **TaskItem**s (1-N)
+- **TaskItem** can optionally be assigned to a **User** (`AssignedToUserId`, nullable) and is always created by a **User** (`CreatedByUserId`, required — this field wasn't in the original requirements doc's data model, but was added later because the endpoint table specifies "task deletion is allowed for the creator or the project Owner")
 
-Tüm `User` FK ilişkileri `DeleteBehavior.Restrict` ile kurulmuştur (SQL Server'ın "multiple cascade paths" hatasını önlemek için); `Project → ProjectMember` ve `Project → TaskItem` ilişkileri `Cascade`'dir.
+All FK relationships pointing at `User` use `DeleteBehavior.Restrict` (to avoid SQL Server's "multiple cascade paths" error); `Project → ProjectMember` and `Project → TaskItem` relationships use `Cascade`.
 
-## Kurulum
+## Setup
 
-### Gereksinimler
+### Prerequisites
 
 - .NET 9 SDK
-- SQL Server (local, Developer Edition yeterli)
-- `dotnet-ef` aracı (proje manifestosunda tanımlı, aşağıdaki adımla kurulur)
+- SQL Server (local, Developer Edition is fine)
+- The `dotnet-ef` tool (already declared in the project manifest, installed in the step below)
 
-### Adımlar
+### Steps
 
 ```bash
 git clone <repo-url>
 cd TaskTrackerApi
 
-# EF Core CLI aracını yükle
+# Install the EF Core CLI tool
 dotnet tool restore
 
 cd src/TaskTracker.Api
 
-# Paketleri geri yükle
+# Restore packages
 dotnet restore
 ```
 
-**Connection string**: `appsettings.json` içinde `Server=localhost;Database=TaskTrackerDb;Trusted_Connection=True;TrustServerCertificate=True;` olarak ayarlıdır. Farklı bir SQL Server instance'ı kullanıyorsan bu değeri güncelle.
+**Connection string**: configured in `appsettings.json` as `Server=localhost;Database=TaskTrackerDb;Trusted_Connection=True;TrustServerCertificate=True;`. Update it if you're using a different SQL Server instance.
 
-**JWT imzalama anahtarı (önemli — repoda yok, elle eklenmeli)**: Güvenlik nedeniyle `Jwt:Key`, `appsettings.json`'a değil **.NET User Secrets**'a kaydedilir, bu yüzden repoyu klonlayan herkesin kendi anahtarını oluşturması gerekir:
+**JWT signing key (important — not in the repo, must be set manually)**: for security reasons, `Jwt:Key` is stored in **.NET User Secrets** rather than `appsettings.json`, so anyone cloning the repo needs to generate their own key:
 
 ```bash
-dotnet user-secrets set "Jwt:Key" "<en az 32 karakterlik rastgele bir string>"
+dotnet user-secrets set "Jwt:Key" "<a random string, at least 32 characters>"
 ```
 
-Bu adım atlanırsa uygulama başlarken hemen hata verip kapanır (bilerek "fail fast" yapılmıştır — token imzalamadan önce değil, uygulama ayağa kalkarken hatayı görmen için).
+If this step is skipped, the app fails fast on startup (intentionally — so you find out immediately, rather than only when someone tries to log in).
 
 ```bash
-# Veritabanını oluştur / migration'ları uygula
+# Create the database / apply migrations
 dotnet ef database update
 
-# Uygulamayı başlat
+# Run the app
 dotnet run
 ```
 
-Swagger arayüzü: **`http://localhost:5133/swagger`** (port `Properties/launchSettings.json`'da değişebilir).
+Swagger UI: **`http://localhost:5133/swagger`** (the port may differ depending on `Properties/launchSettings.json`).
 
-## Örnek Kullanım (Swagger UI üzerinden)
+## Example Usage (via Swagger UI)
 
-1. **`POST /api/auth/register`** ile bir kullanıcı oluştur → response'taki `token`'ı kopyala.
-2. Sayfanın sağ üstündeki **Authorize** butonuna tıkla, token'ı yapıştır (`Bearer` öneki yazmadan), Authorize → Close.
-3. **`POST /api/projects`** ile bir proje oluştur (oluşturan kullanıcı otomatik `Owner` olur).
-4. **`POST /api/projects/{id}/members`** ile başka bir kullanıcıyı projeye ekle.
-5. **`POST /api/projects/{projectId}/tasks`** ile bir görev oluştur.
-6. **`GET /api/projects/{projectId}/tasks?status=Todo&priority=High&page=1&pageSize=20&sortBy=dueDate`** ile filtreleme/sayfalamayı dene.
-7. **`PATCH /api/tasks/{id}/status`** ve **`PATCH /api/tasks/{id}/assign`** ile durumu/atamayı güncelle.
-8. Farklı bir kullanıcıyla register olup, üyesi olmadığı bir projeye erişmeyi dene → **403** almalısın. Token'sız istek atarsan → **401**.
+1. **`POST /api/auth/register`** to create a user → copy the `token` from the response.
+2. Click the **Authorize** button at the top right of the page, paste the token (no `Bearer` prefix needed), Authorize → Close.
+3. **`POST /api/projects`** to create a project (the creator automatically becomes `Owner`).
+4. **`POST /api/projects/{id}/members`** to add another user to the project.
+5. **`POST /api/projects/{projectId}/tasks`** to create a task.
+6. **`GET /api/projects/{projectId}/tasks?status=Todo&priority=High&page=1&pageSize=20&sortBy=dueDate`** to try filtering/pagination.
+7. **`PATCH /api/tasks/{id}/status`** and **`PATCH /api/tasks/{id}/assign`** to update status/assignment.
+8. Register as a different user and try accessing a project you're not a member of → should get **403**. A request without a token → **401**.
 
-## Endpoint Listesi
+## Endpoints
 
 ### Auth
-| Method | Route | Yetki |
+| Method | Route | Access |
 |---|---|---|
-| POST | `/api/auth/register` | Herkese açık |
-| POST | `/api/auth/login` | Herkese açık |
+| POST | `/api/auth/register` | Public |
+| POST | `/api/auth/login` | Public |
 
 ### Projects
-| Method | Route | Yetki |
+| Method | Route | Access |
 |---|---|---|
-| GET | `/api/projects` | Giriş yapmış kullanıcı (üyesi olduğu projeler) |
-| GET | `/api/projects/{id}` | Proje üyesi |
-| POST | `/api/projects` | Giriş yapmış kullanıcı |
-| PUT | `/api/projects/{id}` | Sadece Owner |
-| DELETE | `/api/projects/{id}` | Sadece Owner |
-| POST | `/api/projects/{id}/members` | Sadece Owner |
-| DELETE | `/api/projects/{id}/members/{userId}` | Sadece Owner |
+| GET | `/api/projects` | Authenticated user (projects they belong to) |
+| GET | `/api/projects/{id}` | Project member |
+| POST | `/api/projects` | Authenticated user |
+| PUT | `/api/projects/{id}` | Owner only |
+| DELETE | `/api/projects/{id}` | Owner only |
+| POST | `/api/projects/{id}/members` | Owner only |
+| DELETE | `/api/projects/{id}/members/{userId}` | Owner only |
 
 ### Tasks
-| Method | Route | Yetki |
+| Method | Route | Access |
 |---|---|---|
-| GET | `/api/projects/{projectId}/tasks` | Proje üyesi (filtreleme: `status`, `priority`, `assignedUserId`; sayfalama: `page`, `pageSize`; sıralama: `sortBy=dueDate\|priority\|createdAt`) |
-| GET | `/api/tasks/{id}` | Proje üyesi |
-| POST | `/api/projects/{projectId}/tasks` | Proje üyesi |
-| PUT | `/api/tasks/{id}` | Proje üyesi |
-| PATCH | `/api/tasks/{id}/status` | Proje üyesi |
-| PATCH | `/api/tasks/{id}/assign` | Proje üyesi (sadece proje üyesi birine atanabilir) |
-| DELETE | `/api/tasks/{id}` | Görevi oluşturan veya proje Owner'ı |
+| GET | `/api/projects/{projectId}/tasks` | Project member (filters: `status`, `priority`, `assignedUserId`; pagination: `page`, `pageSize`; sorting: `sortBy=dueDate\|priority\|createdAt`) |
+| GET | `/api/tasks/{id}` | Project member |
+| POST | `/api/projects/{projectId}/tasks` | Project member |
+| PUT | `/api/tasks/{id}` | Project member |
+| PATCH | `/api/tasks/{id}/status` | Project member |
+| PATCH | `/api/tasks/{id}/assign` | Project member (can only assign to another project member) |
+| DELETE | `/api/tasks/{id}` | The task's creator or the project's Owner |
 
-## Hata Formatı
+## Error Format
 
-Tüm hatalar `{ "error": "..." }` formatında döner (validasyon hataları hariç, onlar ASP.NET Core'un standart `ValidationProblemDetails` formatını kullanır). Beklenmeyen (kod hatası kaynaklı) exception'lar 500 olarak, detay sızdırmadan döner; gerçek detay sadece sunucu loglarına yazılır.
+All errors are returned as `{ "error": "..." }` (except validation errors, which use ASP.NET Core's standard `ValidationProblemDetails` format). Unexpected exceptions return 500 without leaking details to the client; the real details are only logged server-side.
 
-## Bu Projede Öğrendiklerim
+## What I Learned Building This
 
-Bu proje, backend'e çok az deneyimle başlayıp sıfırdan öğrenerek yazıldı. Bazı önemli noktalar:
+This project was written from scratch with very little prior backend experience. Some highlights:
 
-- **Katmanlı mimari ve DTO kullanımının nedeni**: Entity'leri doğrudan API'den döndürmemek (özellikle `PasswordHash` gibi hassas alanlar için), iş mantığını Controller'dan ayırmak.
-- **EF Core Code-First + Migrations**: `DeleteBehavior` ayarlanmazsa SQL Server'ın "multiple cascade paths" hatası verdiğini, birden fazla FK aynı tabloya (bu projede `User`) farklı yollardan cascade delete uygularsa bunun neden sorun olduğunu deneyerek öğrendim.
-- **JWT authentication**: token üretimi (claims, signing key, expiration), `TokenValidationParameters` ile doğrulama, ve imzalama anahtarının neden asla `appsettings.json`'a değil User Secrets'a konması gerektiği.
-- **Merkezi hata yönetimi**: `IExceptionHandler` (ASP.NET Core 8+) ile her Controller'da tekrar eden `try/catch` bloklarını nasıl tek bir yere topladığım.
-- **Gerçek hayattaki debug deneyimi** — bu projede karşılaştığım ve çözdüğüm gerçek hatalar:
-  - `Swashbuckle.AspNetCore 10.x`'in yeni `Microsoft.OpenApi 2.x` sürümüyle geldiğinde, eski tutorial'lardaki `Microsoft.OpenApi.Models` namespace'inin ve `OpenApiReference` API'sinin artık geçerli olmadığını, derleyici hatalarını okuyarak yeni API şekline (`OpenApiSecuritySchemeReference` vs.) nasıl uyum sağladığımı.
-  - `ControllerBase.Forbid(string)`'in parametresinin bir mesaj değil, bir authentication *scheme adı* olduğunu — yanlış kullanınca 403 yerine 500 aldığımı, doğrusunun `StatusCode(403, ...)` olduğunu.
-  - `System.Text.Json`'ın enum'ları varsayılan olarak sayı olarak serileştirdiğini, API'yi kullanılabilir kılmak için `JsonStringEnumConverter` eklemem gerektiğini.
-  - Swagger'ın "Authorize" butonu çalışmıyor göründüğünde, sorunun arayüzde değil `/swagger/v1/swagger.json`'ın kendisinde (`"security": [{}]` gibi eksik/bozuk bir referans) olabileceğini — ham API çıktısına bakmanın, arayüzden tahmin yürütmekten çok daha hızlı bir debug yöntemi olduğunu.
+- **Why a layered architecture and DTOs matter**: never returning entities directly from the API (especially sensitive fields like `PasswordHash`), and keeping business logic out of controllers.
+- **EF Core Code-First + Migrations**: learned by hitting it firsthand that SQL Server throws a "multiple cascade paths" error if `DeleteBehavior` isn't configured carefully when multiple foreign keys cascade-delete into the same table (`User`, in this project).
+- **JWT authentication**: token generation (claims, signing key, expiration), validation via `TokenValidationParameters`, and why the signing key must never live in `appsettings.json` — it belongs in User Secrets.
+- **Centralized error handling**: how to replace repetitive `try/catch` blocks in every controller with a single `IExceptionHandler` (ASP.NET Core 8+).
+- **Real debugging experience** — actual bugs I hit and fixed while building this:
+  - `Swashbuckle.AspNetCore 10.x` ships with the new `Microsoft.OpenApi 2.x`, which moved types out of the old `Microsoft.OpenApi.Models` namespace and replaced the `OpenApiReference` pattern — learned to read compiler errors and adapt to the new API shape (`OpenApiSecuritySchemeReference`, etc.) instead of relying on outdated tutorials.
+  - `ControllerBase.Forbid(string)`'s parameter is an authentication *scheme name*, not a message — using it wrong returned 500 instead of 403; the fix is `StatusCode(403, ...)`.
+  - `System.Text.Json` serializes enums as numbers by default — had to add a `JsonStringEnumConverter` to make the API usable with readable enum values like `"High"`.
+  - When Swagger's "Authorize" button appeared to do nothing, the real problem wasn't in the UI but in `/swagger/v1/swagger.json` itself (a broken security reference, `"security": [{}]`) — inspecting the raw API output turned out to be a much faster way to debug than guessing from the UI.
 
-## Kapsam Dışı
+## Out of Scope
 
-Refresh token, e-posta doğrulama, dosya/ek yükleme, real-time bildirimler (SignalR) ve frontend bu proje kapsamında yer almamaktadır (bkz. [task-tracker-gereksinimler.md](task-tracker-gereksinimler.md)).
+Refresh tokens, email verification, file/attachment uploads, real-time notifications (SignalR), and a frontend are not part of this project's scope (see [task-tracker-gereksinimler.md](task-tracker-gereksinimler.md)).
